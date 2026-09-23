@@ -17,9 +17,13 @@ struct ContentView: View {
                 .tabItem { Label("Cofres", systemImage: "archivebox") }
                 .tag(1)
 
+            PersonalLedgerView()
+                .tabItem { Label("PF", systemImage: "person.text.rectangle") }
+                .tag(2)
+
             SettingsView()
                 .tabItem { Label("Ajustes", systemImage: "gearshape") }
-                .tag(2)
+                .tag(3)
         }
         .tint(.accentColor)
         .environment(router)

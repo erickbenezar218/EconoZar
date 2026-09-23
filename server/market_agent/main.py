@@ -29,6 +29,18 @@ class CaminhoIn(BaseModel):
     data_alvo: str | None = None
 
 
+class GastoIn(BaseModel):
+    nome: str = ""
+    valor: float = 0
+
+
+class DividaIn(BaseModel):
+    nome: str = ""
+    saldo: float = 0
+    parcela: float = 0
+    dia: int = 1
+
+
 class LeituraIn(BaseModel):
     aporte: float = 0
     registrado: bool = False
@@ -38,6 +50,11 @@ class LeituraIn(BaseModel):
     falta_meta: float = 0
     investidor: str = ""
     caminhos: list[CaminhoIn] = []
+    entradas_mes: float = 0
+    saidas_mes: float = 0
+    gastos: list[GastoIn] = []
+    dividas: list[DividaIn] = []
+    conselheiro: bool = False
     notificar: bool = False
 
 
@@ -105,6 +122,11 @@ async def leitura(body: LeituraIn) -> dict:
         falta_meta=body.falta_meta,
         investidor=body.investidor.strip(),
         caminhos=[Caminho(**item.model_dump()) for item in body.caminhos],
+        entradas_mes=body.entradas_mes,
+        saidas_mes=body.saidas_mes,
+        gastos=[item.model_dump() for item in body.gastos],
+        dividas=[item.model_dump() for item in body.dividas],
+        conselheiro=body.conselheiro,
         notificar=body.notificar,
     )
     payload = reading.as_dict()

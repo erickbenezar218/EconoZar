@@ -8,6 +8,8 @@ struct DashboardView: View {
     @Query(sort: \Vault.createdAt) private var vaults: [Vault]
     @Query private var plans: [FlexPlan]
     @Query private var contributions: [Contribution]
+    @Query private var movements: [CashMovement]
+    @Query private var debts: [Debt]
     @Query private var preferencesList: [AppPreferences]
 
     private var preferences: AppPreferences? { preferencesList.first }
@@ -196,7 +198,7 @@ struct DashboardView: View {
 
                 if MarketSettings.isConfigured {
                     Button {
-                        Task { await marketStore.refresh(payload: marketPayload(notificar: false)) }
+                        Task { await marketStore.refresh(payload: marketPayload(notificar: false, conselheiro: true)) }
                     } label: {
                         Text(marketStore.reading == nil ? "Buscar leitura" : "Atualizar")
                             .font(.subheadline.weight(.semibold))
@@ -212,7 +214,7 @@ struct DashboardView: View {
         return value > 0 ? "+\(number)%" : "\(number)%"
     }
 
-    private func marketPayload(notificar: Bool) -> LeituraPayload {
+    private func marketPayload(notificar: Bool, conselheiro: Bool = false) -> LeituraPayload {
         MarketPlan.payload(
             investidor: MarketSettings.investorName,
             negocio: preferences?.businessName ?? "Conect Plus",
@@ -228,7 +230,9 @@ struct DashboardView: View {
                 )
             },
             registrado: registeredToday,
-            notificar: notificar
+            notificar: notificar,
+            conta: ContaPessoal.make(movements: movements, debts: debts),
+            conselheiro: conselheiro
         )
     }
 

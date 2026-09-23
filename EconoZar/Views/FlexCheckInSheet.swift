@@ -8,6 +8,8 @@ struct FlexCheckInSheet: View {
     @Query(sort: \Vault.createdAt) private var vaults: [Vault]
     @Query private var plans: [FlexPlan]
     @Query private var contributions: [Contribution]
+    @Query private var movements: [CashMovement]
+    @Query private var debts: [Debt]
     @Query private var preferencesList: [AppPreferences]
 
     @State private var amount: Decimal = 0
@@ -214,7 +216,9 @@ struct FlexCheckInSheet: View {
                 )
             },
             registrado: true,
-            notificar: true
+            notificar: true,
+            conta: ContaPessoal.make(movements: movements, debts: debts),
+            conselheiro: true
         )
         savedPulse += 1
         dismiss()

@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     cache_seconds: int = 900
     session_poll_seconds: int = 60
     alert_move_percent: float = 1.5
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+    crypto_symbols: str = "BTC-BRL,ETH-BRL"
 
     def ticker_list(self) -> list[str]:
         seen: list[str] = []
@@ -20,4 +23,12 @@ class Settings(BaseSettings):
             ticker = raw.strip().upper()
             if ticker and ticker not in seen:
                 seen.append(ticker)
+        return seen
+
+    def crypto_list(self) -> list[str]:
+        seen: list[str] = []
+        for raw in self.crypto_symbols.split(","):
+            symbol = raw.strip().upper()
+            if symbol and symbol not in seen:
+                seen.append(symbol)
         return seen

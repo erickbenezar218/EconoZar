@@ -2,6 +2,8 @@ import asyncio
 import time
 
 from market_agent.analyze import Caminho, Quote, Reading, build_reading, telegram_text
+from market_agent.counsel import counsel, montar_fatos
+from market_agent.crypto import fetch_crypto
 from market_agent.quotes import fetch_quotes, fetch_selic
 from market_agent.session import pregao_aberto
 from market_agent.settings import Settings
@@ -30,9 +32,16 @@ class MarketService:
         falta_meta: float | None = None,
         investidor: str = "",
         caminhos: list[Caminho] | None = None,
+        entradas_mes: float = 0,
+        saidas_mes: float = 0,
+        gastos: list[dict] | None = None,
+        dividas: list[dict] | None = None,
+        conselheiro: bool = False,
         notificar: bool = False,
         force_quotes: bool = False,
     ) -> tuple[Reading, bool]:
+        gastos = gastos or []
+        dividas = dividas or []
         if caminhos:
             self._context = {
                 "aporte": aporte,
@@ -43,6 +52,10 @@ class MarketService:
                 "falta_meta": falta_meta,
                 "investidor": investidor,
                 "caminhos": caminhos,
+                "entradas_mes": entradas_mes,
+                "saidas_mes": saidas_mes,
+                "gastos": gastos,
+                "dividas": dividas,
             }
         elif self._context is not None and aporte is None and not cofre:
             ctx = self._context
@@ -54,6 +67,10 @@ class MarketService:
             falta_meta = ctx["falta_meta"]
             investidor = ctx["investidor"]
             caminhos = ctx["caminhos"]
+            entradas_mes = ctx["entradas_mes"]
+            saidas_mes = ctx["saidas_mes"]
+            gastos = ctx["gastos"]
+            dividas = ctx["dividas"]
 
         selic, selic_data, quotes = await self._snapshot(force_quotes=force_quotes)
         reading = build_reading(
@@ -69,6 +86,29 @@ class MarketService:
             investidor=investidor,
             caminhos=caminhos,
         )
+        cripto = await asyncio.to_thread(fetch_crypto, self.settings.crypto_list())
+        if conselheiro or notificar:
+            texto = counsel(
+                montar_fatos(
+                    investidor=investidor,
+                    negocio=negocio,
+                    selic=reading.selic_meta_anual,
+                    plano=reading.motivo,
+                    entradas=entradas_mes,
+                    saidas=saidas_mes,
+                    gastos=gastos,
+                    dividas=dividas,
+                    cripto=cripto,
+                    cesta=_cesta(reading),
+                ),
+                self.settings,
+            )
+            if texto:
+                reading.motivo = texto
+            else:
+                reading.motivo = _com_cripto(reading.motivo, cripto)
+        else:
+            reading.motivo = _com_cripto(reading.motivo, cripto)
         sent = False
         if notificar:
             sent = await send_message(telegram_text(reading), self.settings)
@@ -131,6 +171,30 @@ class MarketService:
                     self._quotes = results[cursor]
                     self._quotes_at = now
             return self._selic[0], self._selic[1], self._quotes
+
+
+def _cesta(reading: Reading) -> str:
+    vivos = [quote for quote in reading.cotacoes if quote.preco is not None][:6]
+    if not vivos:
+        return "Cesta sem cotação agora."
+    partes = []
+    for quote in vivos:
+        rotulo = quote.ticker.removesuffix(".SA")
+        partes.append(f"{rotulo} {_brl(quote.preco)}")
+    if reading.sugestao_ticker:
+        partes.append(f"Regra da cesta aponta {reading.sugestao_ticker.removesuffix('.SA')}.")
+    return " · ".join(partes)
+
+
+def _com_cripto(motivo: str, cripto: list[dict]) -> str:
+    vivos = [item for item in cripto if item.get("preco") is not None]
+    if not vivos:
+        return motivo
+    linhas = ["Mercado Bitcoin, cotação pública:"]
+    for item in vivos:
+        linhas.append(f"{item['par']} {_brl(item['preco'])}")
+    linhas.append("Bitcoin e Ethereum só cabem na fatia de investimentos. Móveis e reserva seguem no CDB DI.")
+    return motivo + "\n\n" + "\n".join(linhas)
 
 
 def _texto_pregao(linhas: list[str], nome: str) -> str:

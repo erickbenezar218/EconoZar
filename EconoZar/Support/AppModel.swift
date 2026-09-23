@@ -21,6 +21,7 @@ enum AppModel {
                 Contribution.self,
                 FlexPlan.self,
                 CashMovement.self,
+                Debt.self,
                 AppPreferences.self,
                 configurations: configuration
             )

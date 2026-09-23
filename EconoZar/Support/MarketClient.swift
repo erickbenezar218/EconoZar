@@ -52,7 +52,9 @@ enum MarketPlan {
         negocio: String,
         linhas: [PlanoLinha],
         registrado: Bool,
-        notificar: Bool
+        notificar: Bool,
+        conta: ContaPessoal = .vazia,
+        conselheiro: Bool = false
     ) -> LeituraPayload {
         let livres = linhas.filter { $0.tipo == VaultKind.free.rawValue }
         let aporte = livres.reduce(Decimal(0)) { $0 + $1.hoje }
@@ -79,6 +81,11 @@ enum MarketPlan {
                     dataAlvo: linha.dataAlvo.map { iso.string(from: $0) }
                 )
             },
+            entradasMes: conta.entradasMes,
+            saidasMes: conta.saidasMes,
+            gastos: conta.gastos,
+            dividas: conta.dividas,
+            conselheiro: conselheiro,
             notificar: notificar
         )
     }
@@ -101,6 +108,11 @@ struct LeituraPayload: Encodable {
     var faltaMeta: Double
     var investidor: String = ""
     var caminhos: [CaminhoPayload] = []
+    var entradasMes: Double = 0
+    var saidasMes: Double = 0
+    var gastos: [GastoPayload] = []
+    var dividas: [DividaPayload] = []
+    var conselheiro: Bool = false
     var notificar: Bool
 }
 
