@@ -13,17 +13,21 @@ struct ContentView: View {
                 .tabItem { Label("Início", systemImage: "house") }
                 .tag(0)
 
+            ConsultorIAView()
+                .tabItem { Label("Consultor", systemImage: "bubble.left.and.bubble.right") }
+                .tag(1)
+
             VaultListView()
                 .tabItem { Label("Cofres", systemImage: "archivebox") }
-                .tag(1)
+                .tag(2)
 
             PersonalLedgerView()
                 .tabItem { Label("PF", systemImage: "person.text.rectangle") }
-                .tag(2)
+                .tag(3)
 
             SettingsView()
                 .tabItem { Label("Ajustes", systemImage: "gearshape") }
-                .tag(3)
+                .tag(4)
         }
         .tint(.accentColor)
         .environment(router)
@@ -31,6 +35,7 @@ struct ContentView: View {
         .environment(\.locale, Locale(identifier: "pt_BR"))
         .sheet(isPresented: $router.showCheckIn) {
             FlexCheckInSheet()
+                .environment(marketStore)
                 .environment(\.locale, Locale(identifier: "pt_BR"))
         }
         .onOpenURL { url in

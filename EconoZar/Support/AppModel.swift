@@ -22,6 +22,7 @@ enum AppModel {
                 FlexPlan.self,
                 CashMovement.self,
                 Debt.self,
+                ChatTurn.self,
                 AppPreferences.self,
                 configurations: configuration
             )

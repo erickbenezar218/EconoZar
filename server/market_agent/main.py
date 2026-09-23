@@ -41,6 +41,23 @@ class DividaIn(BaseModel):
     dia: int = 1
 
 
+class HistoricoIn(BaseModel):
+    papel: str = "user"
+    texto: str = ""
+
+
+class ChatIn(BaseModel):
+    mensagem: str = ""
+    historico: list[HistoricoIn] = []
+    investidor: str = ""
+    negocio: str = ""
+    caminhos: list[CaminhoIn] = []
+    entradas_mes: float = 0
+    saidas_mes: float = 0
+    gastos: list[GastoIn] = []
+    dividas: list[DividaIn] = []
+
+
 class LeituraIn(BaseModel):
     aporte: float = 0
     registrado: bool = False
@@ -134,6 +151,21 @@ async def leitura(body: LeituraIn) -> dict:
     payload["pregao_aberto"] = pregao_aberto()
     payload["gerado_em"] = _now()
     return payload
+
+
+@app.post("/v1/chat", dependencies=[Depends(require_key)])
+async def chat(body: ChatIn) -> dict:
+    return await service.chat(
+        mensagem=body.mensagem.strip(),
+        historico=[item.model_dump() for item in body.historico],
+        investidor=body.investidor.strip(),
+        negocio=body.negocio.strip(),
+        caminhos=[Caminho(**item.model_dump()) for item in body.caminhos],
+        entradas_mes=body.entradas_mes,
+        saidas_mes=body.saidas_mes,
+        gastos=[item.model_dump() for item in body.gastos],
+        dividas=[item.model_dump() for item in body.dividas],
+    )
 
 
 async def _digest() -> None:

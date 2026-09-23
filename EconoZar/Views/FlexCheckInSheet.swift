@@ -69,14 +69,8 @@ struct FlexCheckInSheet: View {
                                             .foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    TextField(
-                                        "Valor",
-                                        value: shareBinding(vault.id),
-                                        format: .currency(code: "BRL")
-                                    )
-                                    .keyboardType(.decimalPad)
-                                    .multilineTextAlignment(.trailing)
-                                    .frame(maxWidth: 140)
+                                    Text(Money.string(shares[vault.id] ?? 0))
+                                        .font(.body.weight(.semibold).monospacedDigit())
                                 }
                             }
                             Button("Voltar à divisão do plano") {
@@ -127,14 +121,6 @@ struct FlexCheckInSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-    }
-
-    private func shareBinding(_ id: UUID) -> Binding<Decimal> {
-        Binding {
-            shares[id] ?? 0
-        } set: { newValue in
-            shares[id] = Money.clamped(newValue)
-        }
     }
 
     private func load() {

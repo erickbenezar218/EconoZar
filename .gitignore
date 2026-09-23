@@ -5,6 +5,7 @@ xcuserdata/
 *.xcuserstate
 .env
 server/.env
+server/data/
 *.mobileprovision
 *.ipa
 *.dSYM

@@ -2,7 +2,7 @@ import asyncio
 import time
 
 from market_agent.analyze import Caminho, Quote, Reading, build_reading, telegram_text
-from market_agent.counsel import counsel, montar_fatos
+from market_agent.counsel import counsel, montar_fatos, responder_chat
 from market_agent.crypto import fetch_crypto
 from market_agent.quotes import fetch_quotes, fetch_selic
 from market_agent.session import pregao_aberto
@@ -113,6 +113,54 @@ class MarketService:
         if notificar:
             sent = await send_message(telegram_text(reading), self.settings)
         return reading, sent
+
+    async def chat(
+        self,
+        *,
+        mensagem: str,
+        historico: list[dict],
+        investidor: str,
+        negocio: str,
+        caminhos: list[Caminho],
+        entradas_mes: float,
+        saidas_mes: float,
+        gastos: list[dict],
+        dividas: list[dict],
+    ) -> dict:
+        aporte = sum(max(item.hoje, 0) for item in caminhos if item.tipo == "free")
+        reading, _ = await self.reading(
+            aporte=aporte,
+            registrado=True,
+            negocio=negocio,
+            cofre=", ".join(item.nome for item in caminhos if item.tipo == "free") or "Projetos Futuros",
+            tipo_cofre="free" if aporte > 0 else "furniture",
+            investidor=investidor,
+            caminhos=caminhos,
+            entradas_mes=entradas_mes,
+            saidas_mes=saidas_mes,
+            gastos=gastos,
+            dividas=dividas,
+            conselheiro=False,
+            notificar=False,
+        )
+        cripto = await asyncio.to_thread(fetch_crypto, self.settings.crypto_list())
+        return responder_chat(
+            mensagem=mensagem,
+            historico=historico,
+            investidor=investidor,
+            negocio=negocio,
+            selic=reading.selic_meta_anual,
+            plano=reading.motivo,
+            entradas=entradas_mes,
+            saidas=saidas_mes,
+            gastos=gastos,
+            dividas=dividas,
+            cripto=cripto,
+            cesta=_cesta(reading),
+            reading=reading,
+            caminhos=caminhos,
+            settings=self.settings,
+        )
 
     async def watch_session(self) -> int:
         """Busca cotações no pregão e avisa só quando o preço anda além do limite."""

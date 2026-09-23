@@ -179,6 +179,13 @@ enum MarketAPI {
         try await send(path: "/v1/leitura", method: "POST", body: payload, baseURL: baseURL, apiKey: apiKey)
     }
 
+    static func chat(baseURL: String, apiKey: String, payload: ChatPayload) async throws -> ChatReply {
+        let data = try await request(path: "/v1/chat", method: "POST", body: payload, baseURL: baseURL, apiKey: apiKey)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(ChatReply.self, from: data)
+    }
+
     static func health(baseURL: String) async throws {
         let trimmed = baseURL
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -197,6 +204,19 @@ enum MarketAPI {
         baseURL: String,
         apiKey: String
     ) async throws -> MarketReading {
+        let data = try await request(path: path, method: method, body: body, baseURL: baseURL, apiKey: apiKey)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(MarketReading.self, from: data)
+    }
+
+    private static func request<Body: Encodable>(
+        path: String,
+        method: String,
+        body: Body?,
+        baseURL: String,
+        apiKey: String
+    ) async throws -> Data {
         let trimmedURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedURL.isEmpty, !trimmedKey.isEmpty else { throw MarketAPIError.missingConfig }
@@ -216,9 +236,7 @@ enum MarketAPI {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response: response, data: data)
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        return try decoder.decode(MarketReading.self, from: data)
+        return data
     }
 
     private static func validate(response: URLResponse, data: Data) throws {
