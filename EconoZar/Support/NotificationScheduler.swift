@@ -27,7 +27,7 @@ final class NotificationScheduler: NSObject, UNUserNotificationCenterDelegate {
 
         let content = UNMutableNotificationContent()
         content.title = "Hora do Aporte Flex!"
-        content.body = "Quanto o caixa da \(preferences.businessName) rendeu hoje?"
+        content.body = "Quanto você separa hoje?"
         content.sound = .default
 
         var components = DateComponents()

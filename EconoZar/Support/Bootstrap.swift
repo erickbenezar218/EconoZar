@@ -8,27 +8,30 @@ enum Bootstrap {
         guard existing.isEmpty else { return }
 
         let calendar = BrazilCalendar.calendar
-        let furnitureDate = calendar.date(from: DateComponents(year: 2029, month: 12, day: 31))
+        let furnitureDate = calendar.date(byAdding: .year, value: 3, to: .now)
 
         let furniture = Vault(
             name: "Móveis Planejados",
             kind: .furniture,
             targetAmount: 40_000,
             targetDate: furnitureDate,
-            notes: "Meta principal até 2029. Os valores iniciais são um ponto de partida — ajuste quando quiser."
+            notes: "Meta de 3 anos. Ajuste o valor quando tiver o orçamento dos móveis.",
+            flexPercent: 60
         )
         let emergency = Vault(
             name: "Reserva de Emergência",
             kind: .emergency,
             monthlyFixedCosts: 3_500,
             coverageMonths: 6,
-            notes: "Pensada para cobrir meses de custo fixo se o caixa apertar."
+            notes: "Dinheiro de liquidez diária, separado dos móveis e da bolsa.",
+            flexPercent: 20
         )
         let free = Vault(
-            name: "Projetos Futuros",
+            name: "Investimentos",
             kind: .free,
             targetAmount: 15_000,
-            notes: "Meta livre. Ex.: comprar um carro, equipamentos de rede ou uma viagem."
+            notes: "Fatia para a cesta de ações e FIIs. A compra é na corretora.",
+            flexPercent: 20
         )
 
         let plan = FlexPlan()
@@ -42,6 +45,16 @@ enum Bootstrap {
         context.insert(free)
         context.insert(plan)
         context.insert(preferences)
+        try? context.save()
+    }
+
+    @MainActor
+    static func ensureShares(context: ModelContext) {
+        let vaults = (try? context.fetch(FetchDescriptor<Vault>())) ?? []
+        guard !vaults.isEmpty, vaults.allSatisfy({ $0.flexPercent == 0 }) else { return }
+        FlexShare.assign(vaults.filter { $0.kind == .furniture }, total: 60)
+        FlexShare.assign(vaults.filter { $0.kind == .emergency }, total: 20)
+        FlexShare.assign(vaults.filter { $0.kind == .free }, total: 20)
         try? context.save()
     }
 }

@@ -17,13 +17,9 @@ struct ContentView: View {
                 .tabItem { Label("Cofres", systemImage: "archivebox") }
                 .tag(1)
 
-            CashLedgerView()
-                .tabItem { Label("Caixa", systemImage: "arrow.left.arrow.right") }
-                .tag(2)
-
             SettingsView()
                 .tabItem { Label("Ajustes", systemImage: "gearshape") }
-                .tag(3)
+                .tag(2)
         }
         .tint(.accentColor)
         .environment(router)

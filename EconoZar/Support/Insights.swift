@@ -119,12 +119,9 @@ enum Insights {
         return points
     }
 
-    static func cashToday(in movements: [CashMovement], now: Date = .now) -> (income: Decimal, expense: Decimal) {
+    static func todayFlexContributions(in contributions: [Contribution], now: Date = .now) -> [Contribution] {
         let calendar = BrazilCalendar.calendar
-        let today = movements.filter { calendar.isDate($0.date, inSameDayAs: now) }
-        let income = today.filter(\.isIncome).reduce(Decimal(0)) { $0 + $1.amount }
-        let expense = today.filter { !$0.isIncome }.reduce(Decimal(0)) { $0 + $1.amount }
-        return (income, expense)
+        return contributions.filter { $0.kind == .flexCheckIn && calendar.isDate($0.date, inSameDayAs: now) }
     }
 
     static func preferredVault(in vaults: [Vault], preferences: AppPreferences?) -> Vault? {
@@ -133,5 +130,43 @@ enum Insights {
             return match
         }
         return vaults.min { $0.createdAt < $1.createdAt }
+    }
+}
+
+enum FlexShare {
+    static func assign(_ vaults: [Vault], total: Int) {
+        let ordered = vaults.sorted { $0.createdAt < $1.createdAt }
+        guard !ordered.isEmpty, total > 0 else { return }
+        let base = total / ordered.count
+        var rest = total % ordered.count
+        for vault in ordered {
+            vault.flexPercent = base + (rest > 0 ? 1 : 0)
+            if rest > 0 { rest -= 1 }
+        }
+    }
+
+    static func split(total: Decimal, vaults: [Vault]) -> [UUID: Decimal] {
+        let ordered = vaults.sorted { $0.createdAt < $1.createdAt }
+        let weight = ordered.reduce(0) { $0 + max($1.flexPercent, 0) }
+        guard weight > 0 else {
+            return Dictionary(uniqueKeysWithValues: ordered.map { ($0.id, Decimal(0)) })
+        }
+        let totalCents = cents(total)
+        var rows: [(id: UUID, cents: Int)] = ordered.map { vault in
+            (vault.id, totalCents * max(vault.flexPercent, 0) / weight)
+        }
+        let used = rows.reduce(0) { $0 + $1.cents }
+        let leftover = totalCents - used
+        if leftover != 0, let index = rows.indices.max(by: { rows[$0].cents < rows[$1].cents }) {
+            rows[index].cents += leftover
+        }
+        return Dictionary(uniqueKeysWithValues: rows.map { ($0.id, Decimal($0.cents) / 100) })
+    }
+
+    static func cents(_ value: Decimal) -> Int {
+        var input = value * 100
+        var output = Decimal()
+        NSDecimalRound(&output, &input, 0, .plain)
+        return NSDecimalNumber(decimal: output).intValue
     }
 }

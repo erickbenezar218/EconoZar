@@ -5,6 +5,7 @@ import UserNotifications
 struct FlexPlanEditorView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var plans: [FlexPlan]
+    @Query(sort: \Vault.createdAt) private var vaults: [Vault]
 
     private var plan: FlexPlan? { plans.first }
 
@@ -32,6 +33,23 @@ struct FlexPlanEditorView: View {
                             .frame(maxWidth: 160)
                         }
                     }
+                }
+            }
+
+            if !vaults.isEmpty {
+                let shareTotal = vaults.reduce(0) { $0 + $1.flexPercent }
+                Section {
+                    ForEach(vaults) { vault in
+                        Stepper(value: Bindable(vault).flexPercent, in: 0...100) {
+                            Text("\(vault.name) · \(vault.flexPercent)%")
+                        }
+                    }
+                } header: {
+                    Text("Caminhos do aporte")
+                } footer: {
+                    Text(shareTotal == 100
+                         ? "Os caminhos somam 100%. Cada check-in reparte o valor nessa proporção."
+                         : "Os caminhos somam \(shareTotal)%. Ajuste até fechar 100%.")
                 }
             }
         }
@@ -76,6 +94,7 @@ struct SettingsView: View {
     @State private var testingMarket = false
     @AppStorage(MarketSettings.urlKey) private var marketServerURL = ""
     @AppStorage(MarketSettings.keyKey) private var marketAPIKey = ""
+    @AppStorage(MarketSettings.investorKey) private var investorName = "Erick"
 
     private var preferences: AppPreferences? { preferencesList.first }
 
@@ -84,7 +103,8 @@ struct SettingsView: View {
             Form {
                 if let preferences {
                     Section("Negócio") {
-                        TextField("Nome", text: Bindable(preferences).businessName)
+                        TextField("Seu nome", text: $investorName)
+                        TextField("Empresa", text: Bindable(preferences).businessName)
                             .onSubmit { reschedule(preferences) }
                     }
 
@@ -109,7 +129,7 @@ struct SettingsView: View {
                         Text("Notificação")
                     } footer: {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Hora do Aporte Flex! Quanto o caixa da \(preferences.businessName) rendeu hoje?")
+                            Text("Hora do Aporte Flex! Quanto você separa hoje?")
                             if authorization == .denied {
                                 Text("As notificações estão desligadas nos Ajustes do iPhone.")
                                     .foregroundStyle(.red)
@@ -135,12 +155,12 @@ struct SettingsView: View {
                     } header: {
                         Text("Servidor de mercado")
                     } footer: {
-                        Text("O iPhone envia o aporte do dia, o cofre e o que falta da meta. O servidor lê a Selic e as cotações, devolve a leitura e, no check-in, avisa no Telegram. Não compra nem vende.")
+                        Text("No check-in, o Telegram recebe seu nome, o saldo de cada cofre e a Selic. Ele compara a cesta com essa taxa e avisa se um papel andar no pregão. Não vê a taxa da sua conta no banco e não marca dia de venda.")
                     }
 
                     Section("Neste iPhone") {
-                        LabeledContent("Cofres e caixa", value: "Neste aparelho")
-                        Text("O fluxo de caixa e os aportes continuam gravados só aqui. A leitura de mercado é opcional e usa o servidor que você configurar.")
+                        LabeledContent("Cofres e aportes", value: "Neste aparelho")
+                        Text("Os cofres e os aportes ficam gravados só aqui. A leitura de mercado é opcional e usa o servidor que você configurar.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

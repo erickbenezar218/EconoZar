@@ -8,21 +8,21 @@ struct FlexCheckInSheet: View {
     @Query(sort: \Vault.createdAt) private var vaults: [Vault]
     @Query private var plans: [FlexPlan]
     @Query private var contributions: [Contribution]
-    @Query private var movements: [CashMovement]
     @Query private var preferencesList: [AppPreferences]
 
     @State private var amount: Decimal = 0
     @State private var note = ""
-    @State private var vaultID: UUID?
+    @State private var shares: [UUID: Decimal] = [:]
     @State private var didLoad = false
+    @State private var skipAmountChange = false
     @State private var savedPulse = 0
 
     private var preferences: AppPreferences? { preferencesList.first }
     private var plan: FlexPlan? { plans.first }
     private var planned: Decimal { plan?.amount(for: .now) ?? 0 }
-    private var existing: Contribution? { Insights.todayFlexCheckIn(in: contributions) }
-    private var cashToday: (income: Decimal, expense: Decimal) { Insights.cashToday(in: movements) }
-    private var businessName: String { preferences?.businessName ?? "seu negócio" }
+    private var businessName: String { preferences?.businessName ?? "Conect Plus" }
+    private var shareSum: Decimal { shares.values.reduce(Decimal(0)) { $0 + $1 } }
+    private var splitMatchesTotal: Bool { FlexShare.cents(shareSum) == FlexShare.cents(amount) }
 
     var body: some View {
         NavigationStack {
@@ -32,7 +32,7 @@ struct FlexCheckInSheet: View {
                         Text(BrazilCalendar.weekdayName(for: .now))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        Text("Quanto o caixa da \(businessName) rendeu hoje?")
+                        Text("Quanto você separa hoje?")
                             .font(.title3.weight(.semibold))
                     }
 
@@ -43,13 +43,6 @@ struct FlexCheckInSheet: View {
                                 .foregroundStyle(.secondary)
                             Text(planned, format: .currency(code: "BRL"))
                                 .font(.title2.weight(.semibold).monospacedDigit())
-                            HStack {
-                                Text("Entradas \(Money.string(cashToday.income))")
-                                Text("·")
-                                Text("Saídas \(Money.string(cashToday.expense))")
-                            }
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
                         }
                     }
 
@@ -62,15 +55,35 @@ struct FlexCheckInSheet: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     } else {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Cofre de destino")
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Divisão de hoje")
                                 .font(.headline)
-                            Picker("Cofre", selection: $vaultID) {
-                                ForEach(vaults) { vault in
-                                    Text(vault.name).tag(Optional(vault.id))
+                            ForEach(vaults) { vault in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(vault.name)
+                                        Text("\(vault.flexPercent)% do plano")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    TextField(
+                                        "Valor",
+                                        value: shareBinding(vault.id),
+                                        format: .currency(code: "BRL")
+                                    )
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(maxWidth: 140)
                                 }
                             }
-                            .pickerStyle(.menu)
+                            Button("Voltar à divisão do plano") {
+                                shares = FlexShare.split(total: amount, vaults: vaults)
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            Text(splitMatchesTotal ? "A soma fecha o aporte." : "A soma está em \(Money.string(shareSum)). Ajuste os valores até fechar o total.")
+                                .font(.footnote)
+                                .foregroundStyle(splitMatchesTotal ? Color.secondary : Color.red)
                         }
                     }
 
@@ -88,7 +101,7 @@ struct FlexCheckInSheet: View {
                 .frame(maxWidth: .infinity)
             }
             .background(Color(.systemGroupedBackground))
-            .navigationTitle(existing == nil ? "Aporte de hoje" : "Ajustar aporte")
+            .navigationTitle(Insights.todayFlexContributions(in: contributions).isEmpty ? "Aporte de hoje" : "Ajustar aporte")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -96,61 +109,111 @@ struct FlexCheckInSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Registrar") { save() }
-                        .disabled(vaults.isEmpty || vaultID == nil)
+                        .disabled(vaults.isEmpty || !splitMatchesTotal)
                 }
             }
             .sensoryFeedback(.success, trigger: savedPulse)
             .onAppear(perform: load)
+            .onChange(of: amount) { _, newValue in
+                if skipAmountChange {
+                    skipAmountChange = false
+                    return
+                }
+                guard didLoad else { return }
+                shares = FlexShare.split(total: newValue, vaults: vaults)
+            }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
 
-    private func load() {
-        guard !didLoad else { return }
-        didLoad = true
-        if let existing {
-            amount = existing.amount
-            note = existing.note
-            vaultID = existing.vault?.id
-        } else {
-            amount = planned
-            vaultID = Insights.preferredVault(in: vaults, preferences: preferences)?.id
+    private func shareBinding(_ id: UUID) -> Binding<Decimal> {
+        Binding {
+            shares[id] ?? 0
+        } set: { newValue in
+            shares[id] = Money.clamped(newValue)
         }
     }
 
+    private func load() {
+        guard !didLoad else { return }
+        let todays = Insights.todayFlexContributions(in: contributions)
+        if todays.isEmpty {
+            amount = planned
+            shares = FlexShare.split(total: planned, vaults: vaults)
+        } else {
+            skipAmountChange = true
+            let total = todays.reduce(Decimal(0)) { $0 + $1.amount }
+            amount = total
+            var next = FlexShare.split(total: total, vaults: vaults)
+            for item in todays {
+                if let id = item.vault?.id {
+                    next[id] = item.amount
+                }
+            }
+            shares = next
+            note = todays.first?.note ?? ""
+        }
+        didLoad = true
+    }
+
     private func save() {
-        guard let vaultID, let vault = vaults.first(where: { $0.id == vaultID }) else { return }
         let value = Money.clamped(amount)
         let resolvedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if let existing {
-            existing.amount = value
-            existing.plannedAmount = planned
-            existing.note = resolvedNote
-            existing.date = .now
-            existing.vault = vault
-        } else {
-            let contribution = Contribution(
-                amount: value,
-                plannedAmount: planned,
-                note: resolvedNote,
-                kind: .flexCheckIn,
-                vault: vault
-            )
-            modelContext.insert(contribution)
+        var jaHoje: [UUID: Decimal] = [:]
+        for item in Insights.todayFlexContributions(in: contributions) {
+            guard let id = item.vault?.id else { continue }
+            jaHoje[id, default: 0] += item.amount
+        }
+        let saldos = Dictionary(uniqueKeysWithValues: vaults.map { ($0.id, $0.currentAmount) })
+        for item in Insights.todayFlexContributions(in: contributions) {
+            modelContext.delete(item)
         }
 
-        preferences?.preferredVaultID = vault.id
+        if FlexShare.cents(value) == 0 {
+            let holder = vaults.first { $0.kind == .furniture } ?? vaults.first
+            if let holder {
+                modelContext.insert(Contribution(
+                    amount: 0,
+                    plannedAmount: planned,
+                    note: resolvedNote,
+                    kind: .flexCheckIn,
+                    vault: holder
+                ))
+            }
+        } else {
+            for vault in vaults {
+                let part = shares[vault.id] ?? 0
+                guard FlexShare.cents(part) > 0 else { continue }
+                modelContext.insert(Contribution(
+                    amount: part,
+                    plannedAmount: planned,
+                    note: resolvedNote,
+                    kind: .flexCheckIn,
+                    vault: vault
+                ))
+            }
+        }
+
         try? modelContext.save()
         WidgetBridge.publish(context: modelContext)
-        let payload = LeituraPayload(
-            aporte: Money.double(value),
-            registrado: true,
+        let payload = MarketPlan.payload(
+            investidor: MarketSettings.investorName,
             negocio: businessName,
-            cofre: vault.name,
-            tipoCofre: vault.kind.rawValue,
-            faltaMeta: Money.double(Insights.projection(for: vault).remaining),
+            linhas: vaults.map { vault in
+                let novo: Decimal = FlexShare.cents(value) == 0 ? 0 : (shares[vault.id] ?? 0)
+                let saldo = (saldos[vault.id] ?? 0) - (jaHoje[vault.id] ?? 0) + novo
+                return PlanoLinha(
+                    nome: vault.name,
+                    tipo: vault.kind.rawValue,
+                    percentual: vault.flexPercent,
+                    hoje: novo,
+                    saldo: saldo,
+                    meta: vault.effectiveTarget,
+                    dataAlvo: vault.targetDate
+                )
+            },
+            registrado: true,
             notificar: true
         )
         savedPulse += 1

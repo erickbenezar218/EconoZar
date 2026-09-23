@@ -6,7 +6,9 @@ from apscheduler.triggers.cron import CronTrigger
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
+from market_agent.analyze import Caminho
 from market_agent.service import MarketService
+from market_agent.session import pregao_aberto
 from market_agent.settings import Settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -17,6 +19,16 @@ service = MarketService(settings)
 scheduler = AsyncIOScheduler(timezone="America/Sao_Paulo")
 
 
+class CaminhoIn(BaseModel):
+    nome: str = ""
+    tipo: str = ""
+    percentual: int = 0
+    hoje: float = 0
+    saldo: float = 0
+    meta: float = 0
+    data_alvo: str | None = None
+
+
 class LeituraIn(BaseModel):
     aporte: float = 0
     registrado: bool = False
@@ -24,6 +36,8 @@ class LeituraIn(BaseModel):
     cofre: str = ""
     tipo_cofre: str = ""
     falta_meta: float = 0
+    investidor: str = ""
+    caminhos: list[CaminhoIn] = []
     notificar: bool = False
 
 
@@ -41,12 +55,22 @@ async def lifespan(_: FastAPI):
         id="digest",
         replace_existing=True,
     )
+    scheduler.add_job(
+        _pregao,
+        "interval",
+        seconds=max(settings.session_poll_seconds, 30),
+        id="pregao",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.start()
     log.info(
-        "Resumo diário às %02d:%02d (America/Sao_Paulo), %d tickers.",
+        "Resumo diário às %02d:%02d. Pregão a cada %ss, alerta a partir de %s%%.",
         settings.digest_hour,
         settings.digest_minute,
-        len(settings.ticker_list()),
+        max(settings.session_poll_seconds, 30),
+        settings.alert_move_percent,
     )
     yield
     scheduler.shutdown(wait=False)
@@ -65,6 +89,7 @@ async def market() -> dict:
     reading, _ = await service.reading()
     payload = reading.as_dict()
     payload["telegram_enviado"] = False
+    payload["pregao_aberto"] = pregao_aberto()
     payload["gerado_em"] = _now()
     return payload
 
@@ -78,10 +103,13 @@ async def leitura(body: LeituraIn) -> dict:
         cofre=body.cofre.strip(),
         tipo_cofre=body.tipo_cofre.strip(),
         falta_meta=body.falta_meta,
+        investidor=body.investidor.strip(),
+        caminhos=[Caminho(**item.model_dump()) for item in body.caminhos],
         notificar=body.notificar,
     )
     payload = reading.as_dict()
     payload["telegram_enviado"] = sent
+    payload["pregao_aberto"] = pregao_aberto()
     payload["gerado_em"] = _now()
     return payload
 
@@ -89,6 +117,12 @@ async def leitura(body: LeituraIn) -> dict:
 async def _digest() -> None:
     reading, sent = await service.reading(notificar=True)
     log.info("Resumo diário enviado=%s ticker=%s", sent, reading.sugestao_ticker)
+
+
+async def _pregao() -> None:
+    avisos = await service.watch_session()
+    if avisos:
+        log.info("Pregão: %s aviso(s) enviado(s).", avisos)
 
 
 def _now() -> str:

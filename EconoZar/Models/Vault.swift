@@ -31,7 +31,7 @@ enum VaultKind: String, Codable, CaseIterable, Identifiable {
         case .emergency:
             "Cobre meses de custo fixo do negócio."
         case .free:
-            "Carro, equipamentos, viagem ou o próximo projeto."
+            "Caminho de investimento: ações, FIIs ou outro destino."
         }
     }
 }
@@ -47,6 +47,8 @@ final class Vault {
     var coverageMonths: Int
     var symbolName: String
     var notes: String
+    /// Parte do Aporte Flex, em porcentagem. A soma dos cofres deve fechar 100.
+    var flexPercent: Int = 0
     var createdAt: Date
 
     @Relationship(deleteRule: .cascade, inverse: \Contribution.vault)
@@ -61,6 +63,7 @@ final class Vault {
         coverageMonths: Int = 6,
         symbolName: String? = nil,
         notes: String = "",
+        flexPercent: Int = 0,
         createdAt: Date = .now
     ) {
         self.id = UUID()
@@ -72,6 +75,7 @@ final class Vault {
         self.coverageMonths = coverageMonths
         self.symbolName = symbolName ?? kind.defaultSymbol
         self.notes = notes
+        self.flexPercent = flexPercent
         self.createdAt = createdAt
     }
 

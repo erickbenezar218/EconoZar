@@ -97,6 +97,9 @@ struct VaultProgressRow: View {
                 Text(Money.string(vault.currentAmount))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text("\(vault.flexPercent)% de cada aporte")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
         }
         .accessibilityElement(children: .combine)

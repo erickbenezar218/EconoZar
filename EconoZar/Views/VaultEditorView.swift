@@ -16,6 +16,7 @@ struct VaultEditorView: View {
     @State private var coverageMonths = 6
     @State private var symbolName = VaultKind.free.defaultSymbol
     @State private var notes = ""
+    @State private var flexPercent = 0
     @State private var didLoad = false
 
     private let symbols = [
@@ -70,6 +71,13 @@ struct VaultEditorView: View {
                     }
                 }
 
+                Section("Parte de cada aporte") {
+                    Stepper("\(flexPercent)%", value: $flexPercent, in: 0...100)
+                    Text("No check-in, o valor do dia é dividido entre os cofres por esse percentual.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("Data alvo") {
                     Toggle("Definir data", isOn: $hasTargetDate)
                     if hasTargetDate {
@@ -112,6 +120,7 @@ struct VaultEditorView: View {
         coverageMonths = max(vault.coverageMonths, 1)
         symbolName = vault.symbolName
         notes = vault.notes
+        flexPercent = vault.flexPercent
         if let date = vault.targetDate {
             hasTargetDate = true
             targetDate = date
@@ -130,6 +139,7 @@ struct VaultEditorView: View {
             vault.coverageMonths = coverageMonths
             vault.symbolName = symbolName
             vault.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+            vault.flexPercent = flexPercent
         } else {
             let created = Vault(
                 name: trimmed,
@@ -139,7 +149,8 @@ struct VaultEditorView: View {
                 monthlyFixedCosts: Money.clamped(monthlyFixedCosts),
                 coverageMonths: coverageMonths,
                 symbolName: symbolName,
-                notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
+                notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+                flexPercent: flexPercent
             )
             modelContext.insert(created)
         }

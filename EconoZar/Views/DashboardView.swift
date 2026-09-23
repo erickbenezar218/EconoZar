@@ -8,18 +8,19 @@ struct DashboardView: View {
     @Query(sort: \Vault.createdAt) private var vaults: [Vault]
     @Query private var plans: [FlexPlan]
     @Query private var contributions: [Contribution]
-    @Query private var movements: [CashMovement]
     @Query private var preferencesList: [AppPreferences]
-
-    @State private var cashDraft: CashDraft?
 
     private var preferences: AppPreferences? { preferencesList.first }
     private var plan: FlexPlan? { plans.first }
     private var plannedToday: Decimal { plan?.amount(for: .now) ?? 0 }
-    private var todayCheckIn: Contribution? { Insights.todayFlexCheckIn(in: contributions) }
+    private var registeredToday: Bool {
+        !Insights.todayFlexContributions(in: contributions).isEmpty
+    }
+    private var todayFlexTotal: Decimal {
+        Insights.todayFlexContributions(in: contributions).reduce(Decimal(0)) { $0 + $1.amount }
+    }
     private var streak: Int { Insights.streak(in: contributions) }
     private var total: Decimal { Insights.totalSaved(in: vaults) }
-    private var cashToday: (income: Decimal, expense: Decimal) { Insights.cashToday(in: movements) }
     private var series: [PatrimonyPoint] { Insights.patrimonySeries(from: contributions) }
 
     var body: some View {
@@ -36,7 +37,6 @@ struct DashboardView: View {
                     EconoCard {
                         PatrimonyChart(points: series)
                     }
-                    cashCard
                     vaultsCard
                 }
                 .padding(.horizontal, 16)
@@ -51,21 +51,17 @@ struct DashboardView: View {
                     Button {
                         router.showCheckIn = true
                     } label: {
-                        Image(systemName: todayCheckIn == nil ? "plus.circle.fill" : "checkmark.circle.fill")
+                        Image(systemName: registeredToday ? "checkmark.circle.fill" : "plus.circle.fill")
                     }
                     .accessibilityLabel("Registrar aporte de hoje")
                 }
             }
             .task {
-                guard MarketSettings.isConfigured, marketStore.reading == nil else { return }
-                await marketStore.refresh(payload: marketPayload(notificar: false))
-            }
-            .sheet(item: $cashDraft) { draft in
-                CashMovementSheet(
-                    isIncome: draft.isIncome,
-                    suggestedTitle: draft.title,
-                    suggestedMethod: draft.method
-                )
+                guard MarketSettings.isConfigured else { return }
+                while !Task.isCancelled {
+                    await marketStore.refresh(payload: marketPayload(notificar: false))
+                    try? await Task.sleep(for: .seconds(60))
+                }
             }
         }
     }
@@ -92,7 +88,7 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Aporte Flex")
                     .font(.headline)
-                Text("Cada dia da semana tem um valor sugerido. Na hora do check-in você aumenta, reduz ou lança R$ 0,00 — o dia zero não quebra a sequência.")
+                Text("Cada dia tem um valor sugerido. No check-in ele se divide entre os cofres: móveis, reserva e o caminho de investimento. R$ 0,00 não quebra a sequência.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Button("Entendi") {
@@ -150,6 +146,27 @@ struct DashboardView: View {
                         Text("Selic meta \(selic.formatted(.number.precision(.fractionLength(2))))% a.a.")
                             .font(.subheadline.weight(.semibold))
                     }
+                    if reading.pregaoAberto == true {
+                        Label("Pregão aberto", systemImage: "dot.radiowaves.left.and.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    ForEach(reading.cotacoes.filter { $0.preco != nil }.prefix(6)) { quote in
+                        HStack {
+                            Text(quote.rotulo)
+                            Spacer()
+                            if let preco = quote.preco {
+                                Text(preco, format: .currency(code: "BRL").locale(Money.locale))
+                                    .monospacedDigit()
+                            }
+                            if let variacao = quote.variacaoDiaPercent {
+                                Text(signedPercent(variacao))
+                                    .monospacedDigit()
+                                    .foregroundStyle(variacao < 0 ? Color.red : Color.accentColor)
+                            }
+                        }
+                        .font(.caption)
+                    }
                     if let ticker = reading.sugestaoTicker {
                         Text(ticker.replacingOccurrences(of: ".SA", with: ""))
                             .font(.title3.weight(.semibold))
@@ -190,18 +207,42 @@ struct DashboardView: View {
         }
     }
 
+    private func signedPercent(_ value: Double) -> String {
+        let number = value.formatted(.number.precision(.fractionLength(2)).locale(Money.locale))
+        return value > 0 ? "+\(number)%" : "\(number)%"
+    }
+
     private func marketPayload(notificar: Bool) -> LeituraPayload {
-        let vault = todayCheckIn?.vault ?? Insights.preferredVault(in: vaults, preferences: preferences)
-        let remaining = vault.map { Insights.projection(for: $0).remaining } ?? 0
-        return LeituraPayload(
-            aporte: Money.double(todayCheckIn?.amount ?? plannedToday),
-            registrado: todayCheckIn != nil,
+        MarketPlan.payload(
+            investidor: MarketSettings.investorName,
             negocio: preferences?.businessName ?? "Conect Plus",
-            cofre: vault?.name ?? "",
-            tipoCofre: vault?.kind.rawValue ?? "free",
-            faltaMeta: Money.double(remaining),
+            linhas: vaults.map { vault in
+                PlanoLinha(
+                    nome: vault.name,
+                    tipo: vault.kind.rawValue,
+                    percentual: vault.flexPercent,
+                    hoje: hojeDoDia[vault.id] ?? 0,
+                    saldo: vault.currentAmount,
+                    meta: vault.effectiveTarget,
+                    dataAlvo: vault.targetDate
+                )
+            },
+            registrado: registeredToday,
             notificar: notificar
         )
+    }
+
+    private var hojeDoDia: [UUID: Decimal] {
+        let todays = Insights.todayFlexContributions(in: contributions)
+        if !todays.isEmpty {
+            var map: [UUID: Decimal] = [:]
+            for item in todays {
+                guard let id = item.vault?.id else { continue }
+                map[id, default: 0] += item.amount
+            }
+            return map
+        }
+        return FlexShare.split(total: plannedToday, vaults: vaults)
     }
 
     private var flexCard: some View {
@@ -222,8 +263,8 @@ struct DashboardView: View {
                 Text(plannedToday, format: .currency(code: "BRL"))
                     .font(.system(size: 32, weight: .semibold, design: .rounded))
 
-                if let todayCheckIn {
-                    Label("Registrado hoje · \(Money.string(todayCheckIn.amount))", systemImage: "checkmark.circle.fill")
+                if registeredToday {
+                    Label("Registrado hoje · \(Money.string(todayFlexTotal))", systemImage: "checkmark.circle.fill")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(Color.accentColor)
                 } else {
@@ -235,7 +276,7 @@ struct DashboardView: View {
                 Button {
                     router.showCheckIn = true
                 } label: {
-                    Text(todayCheckIn == nil ? "Registrar aporte de hoje" : "Ajustar aporte de hoje")
+                    Text(registeredToday ? "Ajustar aporte de hoje" : "Registrar aporte de hoje")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
@@ -257,52 +298,6 @@ struct DashboardView: View {
         .padding(.vertical, 6)
         .background(Color.accentColor.opacity(0.12), in: Capsule())
         .accessibilityLabel("Sequência de \(streak) dias")
-    }
-
-    private var cashCard: some View {
-        EconoCard {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Caixa de hoje")
-                    .font(.headline)
-                HStack {
-                    labeledAmount("Entradas", cashToday.income, positive: true)
-                    Spacer()
-                    labeledAmount("Saídas", cashToday.expense, positive: false)
-                }
-                HStack(spacing: 10) {
-                    cashShortcut("Pix", systemImage: "qrcode", draft: .pix)
-                    cashShortcut("Boleto", systemImage: "doc.text", draft: .boleto)
-                    cashShortcut("Saída", systemImage: "arrow.up.right", draft: .expense)
-                }
-            }
-        }
-    }
-
-    private func labeledAmount(_ title: String, _ value: Decimal, positive: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value, format: .currency(code: "BRL"))
-                .font(.headline.monospacedDigit())
-                .foregroundStyle(positive ? Color.accentColor : Color.red)
-        }
-    }
-
-    private func cashShortcut(_ title: String, systemImage: String, draft: CashDraft) -> some View {
-        Button {
-            cashDraft = draft
-        } label: {
-            VStack(spacing: 6) {
-                Image(systemName: systemImage)
-                Text(title)
-                    .font(.caption.weight(.semibold))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .buttonStyle(.plain)
     }
 
     private var vaultsCard: some View {
@@ -328,32 +323,6 @@ struct DashboardView: View {
                     }
                 }
             }
-        }
-    }
-}
-
-enum CashDraft: String, Identifiable {
-    case pix
-    case boleto
-    case expense
-
-    var id: String { rawValue }
-
-    var isIncome: Bool { self != .expense }
-
-    var title: String {
-        switch self {
-        case .pix: "Mensalidade Pix"
-        case .boleto: "Mensalidade Boleto"
-        case .expense: "Saída rápida"
-        }
-    }
-
-    var method: CashMethod {
-        switch self {
-        case .pix: .pix
-        case .boleto: .boleto
-        case .expense: .pix
         }
     }
 }

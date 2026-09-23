@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     digest_hour: int = 18
     digest_minute: int = 0
     cache_seconds: int = 900
+    session_poll_seconds: int = 60
+    alert_move_percent: float = 1.5
 
     def ticker_list(self) -> list[str]:
         seen: list[str] = []

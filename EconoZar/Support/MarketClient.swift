@@ -4,6 +4,7 @@ import Observation
 enum MarketSettings {
     static let urlKey = "market.serverURL"
     static let keyKey = "market.apiKey"
+    static let investorKey = "market.investorName"
 
     static var serverURL: String {
         let raw = UserDefaults.standard.string(forKey: urlKey) ?? ""
@@ -14,9 +15,81 @@ enum MarketSettings {
         UserDefaults.standard.string(forKey: keyKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
+    static var investorName: String {
+        let raw = UserDefaults.standard.string(forKey: investorKey) ?? "Erick"
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Erick" : trimmed
+    }
+
     static var isConfigured: Bool {
         !serverURL.isEmpty && !apiKey.isEmpty
     }
+}
+
+struct CaminhoPayload: Encodable {
+    var nome: String
+    var tipo: String
+    var percentual: Int
+    var hoje: Double
+    var saldo: Double
+    var meta: Double
+    var dataAlvo: String?
+}
+
+struct PlanoLinha {
+    var nome: String
+    var tipo: String
+    var percentual: Int
+    var hoje: Decimal
+    var saldo: Decimal
+    var meta: Decimal
+    var dataAlvo: Date?
+}
+
+enum MarketPlan {
+    static func payload(
+        investidor: String,
+        negocio: String,
+        linhas: [PlanoLinha],
+        registrado: Bool,
+        notificar: Bool
+    ) -> LeituraPayload {
+        let livres = linhas.filter { $0.tipo == VaultKind.free.rawValue }
+        let aporte = livres.reduce(Decimal(0)) { $0 + $1.hoje }
+        let nomes = livres.map(\.nome).filter { !$0.isEmpty }.joined(separator: ", ")
+        let faltaReserva = linhas
+            .filter { $0.tipo == VaultKind.emergency.rawValue }
+            .reduce(Decimal(0)) { $0 + max($1.meta - $1.saldo, 0) }
+        return LeituraPayload(
+            aporte: Money.double(aporte),
+            registrado: registrado,
+            negocio: negocio,
+            cofre: nomes.isEmpty ? "Investimentos" : nomes,
+            tipoCofre: aporte > 0 ? VaultKind.free.rawValue : VaultKind.furniture.rawValue,
+            faltaMeta: Money.double(faltaReserva),
+            investidor: investidor,
+            caminhos: linhas.map { linha in
+                CaminhoPayload(
+                    nome: linha.nome,
+                    tipo: linha.tipo,
+                    percentual: linha.percentual,
+                    hoje: Money.double(linha.hoje),
+                    saldo: Money.double(linha.saldo),
+                    meta: Money.double(linha.meta),
+                    dataAlvo: linha.dataAlvo.map { iso.string(from: $0) }
+                )
+            },
+            notificar: notificar
+        )
+    }
+
+    private static let iso: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = BrazilCalendar.calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 }
 
 struct LeituraPayload: Encodable {
@@ -26,6 +99,8 @@ struct LeituraPayload: Encodable {
     var cofre: String
     var tipoCofre: String
     var faltaMeta: Double
+    var investidor: String = ""
+    var caminhos: [CaminhoPayload] = []
     var notificar: Bool
 }
 
@@ -55,6 +130,7 @@ struct MarketReading: Decodable {
     var motivo: String
     var aviso: String
     var telegramEnviado: Bool
+    var pregaoAberto: Bool?
     var cotacoes: [MarketQuote]
     var geradoEm: String?
 }
