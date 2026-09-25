@@ -268,7 +268,7 @@ def _bloco_caminho(
                 dia = f" {_pct(quote.variacao_dia_percent)}" if quote.variacao_dia_percent is not None else ""
                 precos.append(f"{_rotulo(quote.ticker)} {_brl(quote.preco)}{dia}")
             linhas.append("Sua cesta: " + " · ".join(precos) + ".")
-        if caminho.hoje <= 0 and not tickers:
+        if caminho.hoje <= 0:
             linhas.append("Hoje não há valor neste caminho para apontar um papel.")
         elif vazio or chosen is None:
             linhas.append("Nenhuma cotação da cesta respondeu, então não aponto um papel.")

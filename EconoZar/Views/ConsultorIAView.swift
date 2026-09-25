@@ -11,6 +11,7 @@ struct ConsultorIAView: View {
     @Query private var preferencesList: [AppPreferences]
 
     @State private var model = ConsultorIAModel()
+    @FocusState private var composerFocused: Bool
 
     private var businessName: String { preferencesList.first?.businessName ?? "Conect Plus" }
 
@@ -37,6 +38,7 @@ struct ConsultorIAView: View {
                         }
                         .padding(16)
                     }
+                    .scrollDismissesKeyboard(.interactively)
                     .onChange(of: turns.count) { _, _ in
                         if let last = turns.last {
                             withAnimation { proxy.scrollTo(last.persistentModelID, anchor: .bottom) }
@@ -55,6 +57,9 @@ struct ConsultorIAView: View {
                 HStack(alignment: .bottom, spacing: 8) {
                     TextField("Pergunte ao consultor", text: $model.draft, axis: .vertical)
                         .lineLimit(1...4)
+                        .focused($composerFocused)
+                        .submitLabel(.send)
+                        .onSubmit { Task { await enviar() } }
                         .padding(12)
                         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     Button {
@@ -71,6 +76,12 @@ struct ConsultorIAView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Consultor")
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Fechar") { composerFocused = false }
+                }
+            }
             .task {
                 if marketStore.reading == nil, MarketSettings.isConfigured {
                     await marketStore.refresh(payload: nil)

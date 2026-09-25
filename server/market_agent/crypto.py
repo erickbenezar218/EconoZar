@@ -21,7 +21,12 @@ def fetch_crypto(symbols: list[str]) -> list[dict]:
         log.exception("Falha ao consultar o Mercado Bitcoin")
         return []
 
-    rows = payload if isinstance(payload, list) else payload.get("tickers", [])
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        rows = payload.get("tickers") or payload.get("data") or []
+    else:
+        rows = []
     saida: list[dict] = []
     for row in rows:
         if not isinstance(row, dict):

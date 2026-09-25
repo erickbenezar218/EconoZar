@@ -155,17 +155,21 @@ async def leitura(body: LeituraIn) -> dict:
 
 @app.post("/v1/chat", dependencies=[Depends(require_key)])
 async def chat(body: ChatIn) -> dict:
-    return await service.chat(
-        mensagem=body.mensagem.strip(),
-        historico=[item.model_dump() for item in body.historico],
-        investidor=body.investidor.strip(),
-        negocio=body.negocio.strip(),
-        caminhos=[Caminho(**item.model_dump()) for item in body.caminhos],
-        entradas_mes=body.entradas_mes,
-        saidas_mes=body.saidas_mes,
-        gastos=[item.model_dump() for item in body.gastos],
-        dividas=[item.model_dump() for item in body.dividas],
-    )
+    try:
+        return await service.chat(
+            mensagem=body.mensagem.strip(),
+            historico=[item.model_dump() for item in body.historico],
+            investidor=body.investidor.strip(),
+            negocio=body.negocio.strip(),
+            caminhos=[Caminho(**item.model_dump()) for item in body.caminhos],
+            entradas_mes=body.entradas_mes,
+            saidas_mes=body.saidas_mes,
+            gastos=[item.model_dump() for item in body.gastos],
+            dividas=[item.model_dump() for item in body.dividas],
+        )
+    except Exception:
+        log.exception("Falha no chat do consultor")
+        return {"texto": _texto_chat_seguro(body), "sugestao": None}
 
 
 async def _digest() -> None:
@@ -184,3 +188,15 @@ def _now() -> str:
     from zoneinfo import ZoneInfo
 
     return datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat(timespec="seconds")
+
+
+def _texto_chat_seguro(body: ChatIn) -> str:
+    nome = body.investidor.strip() or "Erick"
+    linhas = [f"{nome}, não consegui consultar o mercado agora. Os cofres que eu vejo:"]
+    if not body.caminhos:
+        linhas.append("nenhum cofre chegou nesta mensagem.")
+    for item in body.caminhos:
+        rotulo = item.nome.strip() or "Cofre"
+        linhas.append(f"{rotulo} com saldo de R$ {item.saldo:.2f} e meta de R$ {item.meta:.2f}.")
+    linhas.append("Reserva e móveis permanecem nos cofres deles. Nenhuma ordem foi enviada.")
+    return " ".join(linhas)
