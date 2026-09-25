@@ -94,7 +94,9 @@ def counsel(facts: str, settings: Settings) -> str | None:
 
 CHAT_SISTEMA = """Você é o consultor de investimentos do EconoZar. Fale em português, pelo nome, em tom de conversa.
 Use somente os fatos e a memória recebidos. Não invente taxa, preço ou saldo.
+Responda a pergunta atual primeiro.
 Regras:
+- Se perguntarem quanto está guardado, liste cada cofre com saldo e meta, e feche com o total. Use o bloco Cofres.
 - Reserva de Emergência e Móveis Planejados não se mexem. Nunca sugira tirar dinheiro desses cofres.
 - Só a fatia de Projetos Futuros, tipo free, pode ser comparada com um ativo.
 - O card de sugestão já foi calculado pelo sistema. Se houver sugestão validada, explique esse ativo e pergunte "O que acha?".
@@ -141,13 +143,17 @@ def responder_chat(
         cesta=cesta,
     )
     bloco = (
-        f"{fatos}\n\nSugestão validada pelo sistema: "
+        f"{fatos}\n\nCofres:\n{_linhas_cofres(caminhos)}\n\nSugestão validada pelo sistema: "
         f"{json.dumps(sugestao, ensure_ascii=False) if sugestao else 'nenhuma'}\n\n"
         f"Memória recente:\n{_memoria_texto()}\n\nPergunta atual: {mensagem.strip() or 'Olhe meu plano e diga o passo de hoje.'}"
     )
-    texto = _gerar_chat(bloco, historico, settings) or _texto_local(
-        investidor or "Erick", saldo, nome_cofre, sugestao, selic
-    )
+    if _pergunta_saldo(mensagem):
+        texto = _texto_local(investidor or "Erick", saldo, nome_cofre, None, selic, caminhos, mensagem)
+        sugestao = None
+    else:
+        texto = _gerar_chat(bloco, historico, settings) or _texto_local(
+            investidor or "Erick", saldo, nome_cofre, sugestao, selic, caminhos, mensagem
+        )
     _gravar_memoria(mensagem, texto)
     return {"texto": texto, "sugestao": sugestao}
 
@@ -179,20 +185,52 @@ def _proposta(reading: Reading, saldo: float, nome_cofre: str) -> dict | None:
     }
 
 
-def _texto_local(nome: str, saldo: float, cofre: str, sugestao: dict | None, selic: float | None) -> str:
+def _linhas_cofres(caminhos: list) -> str:
+    if not caminhos:
+        return "nenhum cofre informado"
+    linhas = []
+    total = 0.0
+    for item in caminhos:
+        saldo = float(getattr(item, "saldo", 0) or 0)
+        meta = float(getattr(item, "meta", 0) or 0)
+        nome = getattr(item, "nome", "") or "Cofre"
+        total += saldo
+        linhas.append(f"{nome}: saldo {_brl(saldo)}, meta {_brl(meta)}")
+    linhas.append(f"Total guardado: {_brl(total)}")
+    return "\n".join(linhas)
+
+
+def _texto_local(
+    nome: str,
+    saldo: float,
+    cofre: str,
+    sugestao: dict | None,
+    selic: float | None,
+    caminhos: list,
+    mensagem: str = "",
+) -> str:
+    guardado = _linhas_cofres(caminhos).replace("\n", ". ")
+    if _pergunta_saldo(mensagem):
+        return f"{nome}, você tem isto guardado. {guardado}."
     if sugestao:
         return (
-            f"{nome}, você acumulou {_brl(saldo)} na fatia de {cofre}. "
-            f"{sugestao['estimativa_ativo']} "
-            f"Sugiro tirar {_brl(sugestao['valor'])} desse cofre e registrar a compra de {sugestao['ativo']}. "
+            f"{nome}, você tem isto guardado. {guardado}. "
+            f"Na fatia de {cofre} há {_brl(saldo)}. {sugestao['estimativa_ativo']} "
+            f"Sugiro tirar {_brl(sugestao['valor'])} só desse cofre e registrar a compra de {sugestao['ativo']}. "
             "O que acha?"
         )
     selic_txt = _nivel(selic) if selic is not None else "indisponível"
     return (
-        f"{nome}, a fatia de {cofre} está em {_brl(saldo)}. "
+        f"{nome}, você tem isto guardado. {guardado}. "
         f"Nenhum papel da cesta mostra dividendo de 12 meses acima da Selic de {selic_txt}. "
-        "Esse dinheiro segue no cofrinho. Reserva e móveis permanecem nos cofres deles."
+        f"A fatia de {cofre} segue no cofrinho. Reserva e móveis permanecem nos cofres deles."
     )
+
+
+def _pergunta_saldo(mensagem: str) -> bool:
+    texto = mensagem.lower()
+    chaves = ("quanto", "guardado", "saldo", "tenho", "reserva", "móvel", "movel", "móveis", "moveis", "cofre")
+    return any(chave in texto for chave in chaves)
 
 
 def _gerar_chat(facts: str, historico: list[dict], settings: Settings) -> str | None:
@@ -212,20 +250,53 @@ def _gerar_chat(facts: str, historico: list[dict], settings: Settings) -> str | 
     )
     body = {
         "systemInstruction": {"parts": [{"text": CHAT_SISTEMA}]},
-        "contents": contents,
-        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 500},
+        "contents": _alternar_papeis(contents),
+        "generationConfig": {
+            "temperature": 0.4,
+            "maxOutputTokens": 1024,
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
     }
     try:
         with httpx.Client(timeout=40) as client:
             response = client.post(url, headers={"x-goog-api-key": key}, json=body)
             response.raise_for_status()
             payload = response.json()
-        parts = payload["candidates"][0]["content"]["parts"]
-        text = "\n".join(part.get("text", "") for part in parts).strip()
-        return text or None
+        return _extrair_texto(payload)
     except Exception:
         log.exception("Falha no chat do Gemini")
         return None
+
+
+def _alternar_papeis(contents: list[dict]) -> list[dict]:
+    saida: list[dict] = []
+    for item in contents:
+        if saida and saida[-1]["role"] == item["role"]:
+            anterior = saida[-1]["parts"][0]["text"]
+            atual = item["parts"][0]["text"]
+            saida[-1]["parts"][0]["text"] = f"{anterior}\n\n{atual}"
+            continue
+        saida.append(item)
+    return saida
+
+
+def _extrair_texto(payload: dict) -> str | None:
+    candidates = payload.get("candidates") or []
+    if not candidates:
+        log.warning("Gemini sem candidatos: %s", payload.get("promptFeedback"))
+        return None
+    content = candidates[0].get("content") or {}
+    partes = []
+    for part in content.get("parts") or []:
+        if part.get("thought"):
+            continue
+        texto = str(part.get("text") or "").strip()
+        if texto:
+            partes.append(texto)
+    if not partes:
+        log.warning("Gemini sem texto visível. finish=%s", candidates[0].get("finishReason"))
+        return None
+    return "\n".join(partes).strip()
 
 
 def _memoria_texto() -> str:

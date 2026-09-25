@@ -90,14 +90,16 @@ final class ConsultorIAModel {
                 reply = ConsultorLocal.reply(
                     nome: MarketSettings.investorName,
                     vaults: vaults,
-                    reading: reading
+                    reading: reading,
+                    pergunta: pergunta
                 )
             }
         } else {
             reply = ConsultorLocal.reply(
                 nome: MarketSettings.investorName,
                 vaults: vaults,
-                reading: reading
+                reading: reading,
+                pergunta: pergunta
             )
         }
 
@@ -149,22 +151,37 @@ final class ConsultorIAModel {
 }
 
 enum ConsultorLocal {
-    static func reply(nome: String, vaults: [Vault], reading: MarketReading?) -> ChatReply {
+    static func reply(nome: String, vaults: [Vault], reading: MarketReading?, pergunta: String = "") -> ChatReply {
         let livres = vaults.filter { $0.kind == .free }
         let saldo = livres.reduce(Decimal(0)) { $0 + $1.currentAmount }
         let cofre = livres.first?.name ?? "Projetos Futuros"
         let selic = reading?.selicMetaAnual
+        let total = vaults.reduce(Decimal(0)) { $0 + $1.currentAmount }
+        let linhas = vaults.map { vault in
+            "\(vault.name): \(Money.string(vault.currentAmount)), meta \(Money.string(vault.effectiveTarget))"
+        }
+        let guardado = linhas.isEmpty
+            ? "nenhum cofre informado"
+            : linhas.joined(separator: ". ") + ". Total guardado: \(Money.string(total))"
         let candidato = reading?.cotacoes
             .filter { quote in
                 guard let dy = quote.dividendYieldAnual, let selic, quote.preco != nil else { return false }
                 return dy > selic
             }
             .max { ($0.dividendYieldAnual ?? 0) < ($1.dividendYieldAnual ?? 0) }
+        let perguntaBaixa = pergunta.folding(options: .diacriticInsensitive, locale: Locale(identifier: "pt_BR")).lowercased()
+        let querSaldo = ["quanto", "guardado", "saldo", "tenho", "reserva", "moveis", "cofre"].contains { perguntaBaixa.contains($0) }
+        if querSaldo {
+            return ChatReply(
+                texto: "\(nome), você tem isto guardado. \(guardado).",
+                sugestao: nil
+            )
+        }
 
         guard saldo > 0, let selic, let candidato, let dy = candidato.dividendYieldAnual else {
             let taxa = selic.map { String(format: "%.2f", $0).replacingOccurrences(of: ".", with: ",") + "%" } ?? "indisponível"
             return ChatReply(
-                texto: "\(nome), a fatia de \(cofre) está em \(Money.string(saldo)). Nenhum papel da cesta mostra dividendo de 12 meses acima da Selic de \(taxa). Esse dinheiro segue no cofrinho. Reserva e móveis permanecem nos cofres deles.",
+                texto: "\(nome), você tem isto guardado. \(guardado). Nenhum papel da cesta mostra dividendo de 12 meses acima da Selic de \(taxa). A fatia de \(cofre) segue no cofrinho. Reserva e móveis permanecem nos cofres deles.",
                 sugestao: nil
             )
         }
@@ -177,7 +194,7 @@ enum ConsultorLocal {
             estimativaAtivo: "\(candidato.rotulo) dividendos de 12 meses em \(String(format: "%.2f", dy).replacingOccurrences(of: ".", with: ","))%, acima da Selic."
         )
         return ChatReply(
-            texto: "\(nome), você acumulou \(Money.string(saldo)) na fatia de \(cofre). \(sugestao.estimativaAtivo) Sugiro tirar \(Money.string(saldo)) desse cofre e registrar a compra de \(candidato.rotulo). O que acha?",
+            texto: "\(nome), você tem isto guardado. \(guardado). Na fatia de \(cofre) há \(Money.string(saldo)). \(sugestao.estimativaAtivo) Sugiro tirar \(Money.string(saldo)) só desse cofre e registrar a compra de \(candidato.rotulo). O que acha?",
             sugestao: sugestao
         )
     }
